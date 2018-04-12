@@ -420,6 +420,12 @@ class ArgumentParser(argparse.ArgumentParser):
                           help="logging level; supported levels are [trace|debug|info|warn|error|fatal]",
                           metavar="LEVEL|COMPONENT=LEVEL")
         self.add_argument("--longlog", action="store_true", help="use a more verbose format for the logging")
+        self.add_argument("--logdest", action="store",
+                          help="direct log output to FILE", metavar="FILE",
+                          default="System.out")
+        self.add_argument("--logconfig", action="store",
+                          help="use a log configuration override file",
+                          metavar="OVERRIDE")
         self.add_argument("--debug", action="store_true", help="enable debugging output?")
         self.add_argument("--doraise", action="store_true",
                           help="raise an exception on error (else log a message and continue)?")
@@ -445,13 +451,6 @@ class ArgumentParser(argparse.ArgumentParser):
                                 "them (safe with -j, but not all other forms of parallel execution)"))
         self.add_argument("--no-versions", action="store_true", dest="noVersions", default=False,
                           help="don't check package versions; useful for development")
-        lsstLog.configure_prop("""
-log4j.rootLogger=INFO, A1
-log4j.appender.A1=ConsoleAppender
-log4j.appender.A1.Target=System.out
-log4j.appender.A1.layout=PatternLayout
-log4j.appender.A1.layout.ConversionPattern=%c %p: %m%n
-""")
 
     def add_id_argument(self, name, datasetType, help, level=None, doMakeDataRefList=True,
                         ContainerClass=DataIdContainer):
@@ -639,15 +638,31 @@ log4j.appender.A1.layout.ConversionPattern=%c %p: %m%n
 
         del namespace.loglevel
 
+        # Logging options
+
+        logProps = "log4j.rootLogger=INFO, A1\n"
+        if namespace.logdest == "System.out" or namespace.logdest == "System.err":
+            logProps += "log4j.appender.A1 = ConsoleAppender\n"
+            logProps += "log4j.appender.A1.Target=" + namespace.logdest + "\n"
+        else:
+            logProps += "log4j.appender.A1 = FileAppender\n"
+            logProps += "log4j.appender.A1.File=" + namespace.logdest + "\n"
+        del namespace.logdest
+
+        logProps += "log4j.appender.A1.layout=PatternLayout\n"
         if namespace.longlog:
-            lsstLog.configure_prop("""
-log4j.rootLogger=INFO, A1
-log4j.appender.A1=ConsoleAppender
-log4j.appender.A1.Target=System.out
-log4j.appender.A1.layout=PatternLayout
-log4j.appender.A1.layout.ConversionPattern=%-5p %d{yyyy-MM-ddThh:mm:ss.sss} %c (%X{LABEL})(%F:%L)- %m%n
-""")
+            logProps += "log4j.appender.A1.layout.ConversionPattern=%-5p " \
+                        "%d{yyyy-MM-ddTHH:mm:ss.sssZ} %c (%X{LABEL})(%F:%L)- %m%n"
+        else:
+            logProps += "log4j.appender.A1.layout.ConversionPattern=%c %p: %m%n\n"
         del namespace.longlog
+
+        if namespace.logconfig:
+            with open(namespace.logconfig) as f:
+                logProps += "".join(f.readlines())
+        del namespace.logconfig
+
+        lsstLog.configure_prop(logProps)
 
         namespace.config.validate()
         namespace.config.freeze()
