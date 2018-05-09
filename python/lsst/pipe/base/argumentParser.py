@@ -44,6 +44,8 @@ import lsst.log as lsstLog
 import lsst.daf.persistence as dafPersist
 from future.utils import with_metaclass
 
+from lsst.daf.butler import ShimButler
+
 __all__ = ["ArgumentParser", "ConfigFileAction", "ConfigValueAction", "DataIdContainer",
            "DatasetArgument", "ConfigDatasetType", "InputOnlyArgumentParser"]
 
@@ -445,6 +447,8 @@ class ArgumentParser(argparse.ArgumentParser):
                                 "them (safe with -j, but not all other forms of parallel execution)"))
         self.add_argument("--no-versions", action="store_true", dest="noVersions", default=False,
                           help="don't check package versions; useful for development")
+        self.add_argument("--use-shim-butler", action="store_true", dest="useShimButler", default=True,
+                          help="use a ShimButler to mimic a Gen2 Butler on top of a Gen3 Butler")
         lsstLog.configure_prop("""
 log4j.rootLogger=INFO, A1
 log4j.appender.A1=ConsoleAppender
@@ -611,11 +615,17 @@ log4j.appender.A1.layout.ConversionPattern=%c %p: %m%n
             inputs = {'root': namespace.input}
             inputs.update(butlerArgs)
             outputs.update(butlerArgs)
-            namespace.butler = dafPersist.Butler(inputs=inputs, outputs=outputs)
+            if namespace.useShimButler:
+                namespace.butler = ShimButler(gen3Root=namespace.input, inputs=inputs, outputs=outputs, explode=False)
+            else:
+                namespace.butler = Butler(inputs=inputs, outputs=outputs, explode=False)
         else:
             outputs = {'root': namespace.input, 'mode': 'rw'}
             outputs.update(butlerArgs)
-            namespace.butler = dafPersist.Butler(outputs=outputs)
+            if namespace.useShimButler:
+                namespace.butler = ShimButler(gen3Root=namespace.input, outputs=outputs, explode=False)
+            else:                
+                namespace.butler = Butler(outputs=outputs, explode=False)
 
         # convert data in each of the identifier lists to proper types
         # this is done after constructing the butler, hence after parsing the command line,
