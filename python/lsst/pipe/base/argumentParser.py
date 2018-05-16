@@ -44,7 +44,8 @@ import lsst.log as lsstLog
 import lsst.daf.persistence as dafPersist
 from future.utils import with_metaclass
 
-from lsst.daf.butler import ShimButler
+from lsst.utils import getPackageDir
+from lsst.daf.butler import Config, Butler, ShimButler
 
 __all__ = ["ArgumentParser", "ConfigFileAction", "ConfigValueAction", "DataIdContainer",
            "DatasetArgument", "ConfigDatasetType", "InputOnlyArgumentParser"]
@@ -607,6 +608,40 @@ log4j.appender.A1.layout.ConversionPattern=%c %p: %m%n
                        "An output directory must be specified with the --output or --rerun\n"
                        "command-line arguments.\n")
 
+        if namespace.useShimButler:
+            butlerConfig = Config()
+            butlerConfig["run"] = "ci_hsc"
+            butlerConfig["registry.cls"] = "lsst.daf.butler.registries.sqliteRegistry.SqliteRegistry"
+            butlerConfig["registry.db"] = "sqlite:///{}/gen3.sqlite3".format(namespace.input)
+            butlerConfig["registry.schema"] = os.path.join(getPackageDir("daf_butler"),
+                                                        "config/registry/default_schema.yaml")
+            butlerConfig["storageClasses.config"] = os.path.join(getPackageDir("daf_butler"),
+                                                        "config/registry/storageClasses.yaml")
+            butlerConfig["datastore.cls"] = "lsst.daf.butler.datastores.posixDatastore.PosixDatastore"
+            butlerConfig["datastore.records"] = {"table": "PosixDatastoreRecords"}
+            butlerConfig["datastore.root"] = namespace.input
+            butlerConfig["datastore.create"] = True
+            butlerConfig["datastore.formatters"] = {
+                "Catalog": "lsst.daf.butler.formatters.fitsCatalogFormatter.FitsCatalogFormatter",
+                "PeakCatalog": "lsst.daf.butler.formatters.fitsCatalogFormatter.FitsCatalogFormatter",
+                "SourceCatalog": "lsst.daf.butler.formatters.fitsCatalogFormatter.FitsCatalogFormatter",
+                "ImageF": "lsst.daf.butler.formatters.fitsCatalogFormatter.FitsCatalogFormatter",
+                "ImageU": "lsst.daf.butler.formatters.fitsCatalogFormatter.FitsCatalogFormatter",
+                "DecoratedImageU": "lsst.daf.butler.formatters.fitsCatalogFormatter.FitsCatalogFormatter",
+                "MaskX": "lsst.daf.butler.formatters.fitsCatalogFormatter.FitsCatalogFormatter",
+                "Exposure": "lsst.daf.butler.formatters.fitsExposureFormatter.FitsExposureFormatter",
+                "ExposureF": "lsst.daf.butler.formatters.fitsExposureFormatter.FitsExposureFormatter",
+                "ExposureI": "lsst.daf.butler.formatters.fitsExposureFormatter.FitsExposureFormatter",
+                "SkyMap": "lsst.daf.butler.formatters.pickleFormatter.PickleFormatter",
+                "TablePersistableTransmissionCurve":
+                    "lsst.daf.butler.formatters.fitsCatalogFormatter.FitsCatalogFormatter",
+                "Background": "lsst.daf.butler.formatters.fitsCatalogFormatter.FitsCatalogFormatter",
+                "Config": "lsst.daf.butler.formatters.pexConfigFormatter.PexConfigFormatter",
+                "Packages": "lsst.daf.butler.formatters.pickleFormatter.PickleFormatter",
+            }
+            butlerConfig["datastore.templates.default"] = \
+                "{datasetType}/{tract:?}/{patch:?}/{filter:?}/{camera:?}_{visit:?}_{sensor:?}"
+
         butlerArgs = {}  # common arguments for butler elements
         if namespace.calib:
             butlerArgs = {'mapperArgs': {'calibRoot': namespace.calib}}
@@ -616,16 +651,16 @@ log4j.appender.A1.layout.ConversionPattern=%c %p: %m%n
             inputs.update(butlerArgs)
             outputs.update(butlerArgs)
             if namespace.useShimButler:
-                namespace.butler = ShimButler(gen3Root=namespace.input, inputs=inputs, outputs=outputs, explode=False)
+                namespace.butler = ShimButler(butler=Butler(butlerConfig), fallbackButler=dafPersist.Butler(inputs=inputs, outputs=outputs))
             else:
-                namespace.butler = Butler(inputs=inputs, outputs=outputs, explode=False)
+                namespace.butler = dafPersist.Butler(inputs=inputs, outputs=outputs)
         else:
             outputs = {'root': namespace.input, 'mode': 'rw'}
             outputs.update(butlerArgs)
             if namespace.useShimButler:
-                namespace.butler = ShimButler(gen3Root=namespace.input, outputs=outputs, explode=False)
+                namespace.butler = ShimButler(butler=Butler(butlerConfig), fallbackButler=dafPersist.Butler(outputs=outputs))
             else:                
-                namespace.butler = Butler(outputs=outputs, explode=False)
+                namespace.butler = dafPersist.Butler(outputs=outputs)
 
         # convert data in each of the identifier lists to proper types
         # this is done after constructing the butler, hence after parsing the command line,
